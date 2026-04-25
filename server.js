@@ -92,6 +92,56 @@ app.post('/api/analyze', async (req, res) => {
   }
 });
 
+app.post('/api/analyze-article', async (req, res) => {
+  const { message } = req.body;
+  if (!message) return res.status(400).json({ error: 'message is required' });
+
+  const apiKey = process.env.CLAUDE_API_KEY;
+  if (!apiKey) return res.status(500).json({ error: 'CLAUDE_API_KEY not set' });
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        max_tokens: 4096,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: message }],
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return res.status(response.status).json({ error: data.error?.message || 'Claude API error' });
+    }
+
+    const raw = data.content?.[0]?.text || '';
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+
+    let analysis;
+    try {
+      analysis = JSON.parse(cleaned);
+    } catch {
+      const match = cleaned.match(/\{[\s\S]*\}/);
+      if (match) {
+        analysis = JSON.parse(match[0]);
+      } else {
+        return res.status(500).json({ error: 'Failed to parse Claude response as JSON' });
+      }
+    }
+
+    res.json(analysis);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Bias Detector API running on port ${PORT}`);
 });
